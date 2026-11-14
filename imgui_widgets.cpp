@@ -9439,7 +9439,11 @@ bool ImGui::MenuItemEx(const char* label, const char* icon, const char* shortcut
             {
                 PushStyleColor(ImGuiCol_Text, style.Colors[ImGuiCol_TextDisabled]);
                 LogSetNextTextDecoration("(", ")");
-                RenderText(pos + ImVec2(offsets->OffsetShortcut + stretch_w, 0.0f), shortcut, NULL, false);
+                // Right-aligned, as the menus of Visual Studio Code and of macOS align them: at the right end of the item, over the
+                // column of the marks, which a selected item needs for its mark only
+                const float shortcut_end = selected ? (float)offsets->OffsetMark - offsets->Spacing : (float)offsets->OffsetMark + checkmark_w;
+                const float shortcut_x = ImMax((float)offsets->OffsetShortcut, shortcut_end - shortcut_w);
+                RenderText(pos + ImVec2(shortcut_x + stretch_w, 0.0f), shortcut, NULL, false);
                 PopStyleColor();
             }
             if (selected)

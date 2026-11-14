@@ -242,7 +242,9 @@ ImGuiKey ImGui_ImplSDL3_KeyEventToImGuiKey(SDL_Keycode keycode, SDL_Scancode sca
         case SDLK_COMMA: return ImGuiKey_Comma;
         //case SDLK_MINUS: return ImGuiKey_Minus;
         case SDLK_PERIOD: return ImGuiKey_Period;
-        //case SDLK_SLASH: return ImGuiKey_Slash;
+        // The key that types a slash, where a layout has one (the key beside the right Shift of ABNT2, which has no scancode of
+        // its own), so that Ctrl+/ is the key that shows /; a layout without one falls back to the place of the slash of US
+        case SDLK_SLASH: return ImGuiKey_Slash;
         case SDLK_SEMICOLON: return ImGuiKey_Semicolon;
         //case SDLK_EQUALS: return ImGuiKey_Equal;
         //case SDLK_LEFTBRACKET: return ImGuiKey_LeftBracket;
