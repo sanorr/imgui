@@ -1846,6 +1846,7 @@ enum ImGuiCol_
     ImGuiCol_TabText,               // Label of a tab that is neither selected nor hovered
     ImGuiCol_DockingPreview,        // Preview overlay color when about to docking something
     ImGuiCol_DockingEmptyBg,        // Background color for empty node (e.g. CentralNode with no window docked into it)
+    ImGuiCol_DockingSeparator,      // Gap between two docked nodes at rest; hovered and held, a thin line of SeparatorHovered and SeparatorActive in its middle
     ImGuiCol_PlotLines,
     ImGuiCol_PlotLinesHovered,
     ImGuiCol_PlotHistogram,
@@ -2493,6 +2494,7 @@ struct ImGuiIO
     bool        ConfigDockingWithShift;         // = false          // Enable docking with holding Shift key (reduce visual noise, allows dropping in wider space)
     bool        ConfigDockingAlwaysTabBar;      // = false          // [BETA] [FIXME: This currently creates regression with auto-sizing and general overhead] Make every single floating window display within a docking node.
     bool        ConfigDockingTransparentPayload;// = false          // [BETA] Make window or viewport transparent when docking and only display docking boxes on the target viewport. Useful if rendering of multiple viewport cannot be synced. Best used with ConfigViewportsNoAutoMerge.
+    bool        ConfigDockingKeepSelectedTab;   // = false          // A docked window that appears takes neither the focus nor the selected tab of its node, which stays on the tab that the user chose; among windows that appear together in an empty node, the first docked (DockOrder) is selected. Focusing a window (SetWindowFocus, a click on its tab) still selects it.
 
     // Viewport options (when ImGuiConfigFlags_ViewportsEnable is set)
     bool        ConfigViewportsNoAutoMerge;     // = false;         // Set to make all floating imgui windows always create their own viewport. Otherwise, they are merged into the main host viewports when overlapping it. May also set ImGuiViewportFlags_NoAutoMerge on individual viewport.

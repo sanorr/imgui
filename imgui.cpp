@@ -1579,6 +1579,7 @@ ImGuiIO::ImGuiIO()
     ConfigDockingWithShift = false;
     ConfigDockingAlwaysTabBar = false;
     ConfigDockingTransparentPayload = false;
+    ConfigDockingKeepSelectedTab = false;
 
     // Viewport options (when ImGuiConfigFlags_ViewportsEnable is set)
     ConfigViewportsNoAutoMerge = false;
@@ -3763,6 +3764,7 @@ const char* ImGui::GetStyleColorName(ImGuiCol idx)
     case ImGuiCol_TabText: return "TabText";
     case ImGuiCol_DockingPreview: return "DockingPreview";
     case ImGuiCol_DockingEmptyBg: return "DockingEmptyBg";
+    case ImGuiCol_DockingSeparator: return "DockingSeparator";
     case ImGuiCol_PlotLines: return "PlotLines";
     case ImGuiCol_PlotLinesHovered: return "PlotLinesHovered";
     case ImGuiCol_PlotHistogram: return "PlotHistogram";
@@ -8131,7 +8133,10 @@ bool ImGui::Begin(const char* name, bool* p_open, ImGuiWindowFlags flags)
 
         // Apply window focus (new and reactivated windows are moved to front)
         bool want_focus = false;
-        if (window_just_activated_by_user && !(flags & ImGuiWindowFlags_NoFocusOnAppearing))
+        // A docked window that appears does not take the focus, which would select its tab (io.ConfigDockingKeepSelectedTab):
+        // the tab bar of its node chooses, and a window that is focused explicitly is selected
+        const bool appears_docked = g.IO.ConfigDockingKeepSelectedTab && (window->DockIsActive || window->DockId != 0);
+        if (window_just_activated_by_user && !(flags & ImGuiWindowFlags_NoFocusOnAppearing) && !appears_docked)
         {
             if (flags & ImGuiWindowFlags_Popup)
                 want_focus = true;
@@ -19020,7 +19025,16 @@ static void ImGui::DockNodeUpdate(ImGuiDockNode* node)
             if (candidate->TabId == node->SelectedTabId)
                 is_selected_window_in_node = true;
         if (!is_selected_window_in_node)
-            node->SelectedTabId = node->Windows[0]->TabId;
+        {
+            // The first window of the node, or with io.ConfigDockingKeepSelectedTab the first docked by the layout (DockOrder),
+            // then the first added
+            ImGuiWindow* first = node->Windows[0];
+            if (g.IO.ConfigDockingKeepSelectedTab)
+                for (ImGuiWindow* candidate : node->Windows)
+                    if (candidate->DockOrder != -1 && (first->DockOrder == -1 || candidate->DockOrder < first->DockOrder))
+                        first = candidate;
+            node->SelectedTabId = first->TabId;
+        }
     }
 
     // Draw payload drop target
@@ -19297,11 +19311,15 @@ static void ImGui::DockNodeUpdateTabBar(ImGuiDockNode* node, ImGuiWindow* host_w
     // Selected newly added tabs, or persistent tab ID if the tab bar was just recreated
     if (tab_bar_is_recreated && TabBarFindTabByID(tab_bar, node->SelectedTabId) != NULL)
         tab_bar->SelectedTabId = tab_bar->NextSelectedTabId = node->SelectedTabId;
-    else if (tab_bar->Tabs.Size > tabs_count_old)
+    else if (tab_bar->Tabs.Size > tabs_count_old && !g.IO.ConfigDockingKeepSelectedTab)
         tab_bar->SelectedTabId = tab_bar->NextSelectedTabId = tab_bar->Tabs.back().Window->TabId;
+    else if (tab_bar->Tabs.Size > tabs_count_old && (tabs_count_old == 0 || TabBarFindTabByID(tab_bar, tab_bar->SelectedTabId) == NULL))
+        tab_bar->SelectedTabId = tab_bar->NextSelectedTabId = tab_bar->Tabs[tabs_count_old].Window->TabId; // The first of the new tabs, sorted by DockOrder above
 
     // Begin tab bar
-    ImGuiTabBarFlags tab_bar_flags = ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_AutoSelectNewTabs; // | ImGuiTabBarFlags_NoTabListScrollingButtons);
+    ImGuiTabBarFlags tab_bar_flags = ImGuiTabBarFlags_Reorderable; // | ImGuiTabBarFlags_NoTabListScrollingButtons);
+    if (!g.IO.ConfigDockingKeepSelectedTab)
+        tab_bar_flags |= ImGuiTabBarFlags_AutoSelectNewTabs;
     tab_bar_flags |= ImGuiTabBarFlags_SaveSettings | ImGuiTabBarFlags_DockNode;
     tab_bar_flags |= ImGuiTabBarFlags_FittingPolicyMixed; // Enforce default policy. Since 1.92.2 this is now reasonable. May expose later if needed. (#8800, #3421)
     tab_bar_flags |= ImGuiTabBarFlags_DrawSelectedOverline;
@@ -20077,7 +20095,7 @@ void ImGui::DockNodeTreeUpdateSplitter(ImGuiDockNode* node)
         if ((merged_flags & ImGuiDockNodeFlags_NoResize) || (merged_flags & no_resize_axis_flag))
         {
             ImGuiWindow* window = g.CurrentWindow;
-            window->DrawList->AddRectFilled(bb.Min, bb.Max, GetColorU32(ImGuiCol_Separator), g.Style.FrameRounding);
+            window->DrawList->AddRectFilled(bb.Min, bb.Max, GetColorU32(ImGuiCol_DockingSeparator), g.Style.FrameRounding);
         }
         else
         {
@@ -20122,8 +20140,25 @@ void ImGui::DockNodeTreeUpdateSplitter(ImGuiDockNode* node)
             float cur_size_1 = child_1->Size[axis];
             float min_size_0 = resize_limits[0] - child_0->Pos[axis];
             float min_size_1 = child_1->Pos[axis] + child_1->Size[axis] - resize_limits[1];
-            ImU32 bg_col = GetColorU32(ImGuiCol_WindowBg);
-            if (SplitterBehavior(bb, GetID("##Splitter"), axis, &cur_size_0, &cur_size_1, min_size_0, min_size_1, g.WindowsBorderHoverPadding, WINDOWS_RESIZE_FROM_EDGES_FEEDBACK_TIMER, bg_col))
+            // The gap is drawn here rather than by SplitterBehavior: DockingSeparator at rest, and under the mouse after the delay
+            // of the short hover (HoverDelayShort) and while dragged a line a third of the gap wide in its middle, so that a gap reads
+            // as space and its handle as a line
+            PushStyleColor(ImGuiCol_Separator, IM_COL32(0, 0, 0, 0));
+            PushStyleColor(ImGuiCol_SeparatorHovered, IM_COL32(0, 0, 0, 0));
+            PushStyleColor(ImGuiCol_SeparatorActive, IM_COL32(0, 0, 0, 0));
+            const bool resized = SplitterBehavior(bb, splitter_id, axis, &cur_size_0, &cur_size_1, min_size_0, min_size_1, g.WindowsBorderHoverPadding, WINDOWS_RESIZE_FROM_EDGES_FEEDBACK_TIMER, GetColorU32(ImGuiCol_DockingSeparator));
+            PopStyleColor(3);
+            const bool held = g.ActiveId == splitter_id;
+            const bool hovered = g.HoveredId == splitter_id && g.HoveredIdTimer >= g.Style.HoverDelayShort;
+            if (held || hovered)
+            {
+                ImRect line = bb;
+                const float thickness = ImMax(1.0f, IM_ROUND(bb.GetSize()[axis] / 3.0f));
+                line.Min[axis] = IM_ROUND((bb.Min[axis] + bb.Max[axis] - thickness) * 0.5f);
+                line.Max[axis] = line.Min[axis] + thickness;
+                g.CurrentWindow->DrawList->AddRectFilled(line.Min, line.Max, GetColorU32(held ? ImGuiCol_SeparatorActive : ImGuiCol_SeparatorHovered), thickness * 0.5f);
+            }
+            if (resized)
             {
                 if (touching_nodes[0].Size > 0 && touching_nodes[1].Size > 0)
                 {

@@ -935,9 +935,10 @@ bool ImGui::CollapseButton(ImGuiID id, const ImVec2& pos, ImGuiDockNode* dock_no
     // Render
     //bool is_dock_menu = (window->DockNodeAsHost && !window->Collapsed);
     ImU32 bg_col = GetColorU32((held && hovered) ? ImGuiCol_ButtonActive : hovered ? ImGuiCol_ButtonHovered : ImGuiCol_Button);
-    ImU32 text_col = GetColorU32(ImGuiCol_Text);
+    // The menu of a node is muted until the mouse is over it, as the other chevrons
+    ImU32 text_col = GetColorU32((dock_node && !hovered && !held) ? ImGuiCol_TextDisabled : ImGuiCol_Text);
     if (hovered || held)
-        window->DrawList->AddRectFilled(bb.Min, bb.Max, bg_col);
+        window->DrawList->AddRectFilled(bb.Min, bb.Max, bg_col, g.Style.FrameRounding);
     RenderNavCursor(bb, id, ImGuiNavRenderCursorFlags_Compact);
 
     if (dock_node)
@@ -9818,7 +9819,7 @@ static void ImGui::TabBarLayout(ImGuiTabBar* tab_bar)
         // and we cannot wait for the next BeginTabItem() call. We cannot compute this width within TabBarAddTab() because font size depends on the active window.
         const char* tab_name = TabBarGetTabName(tab_bar, tab);
         const bool has_close_button_or_unsaved_marker = (tab->Flags & ImGuiTabItemFlags_NoCloseButton) == 0 || (tab->Flags & ImGuiTabItemFlags_UnsavedDocument);
-        tab->ContentWidth = (tab->RequestedWidth >= 0.0f) ? tab->RequestedWidth : TabItemCalcSize(tab_name, has_close_button_or_unsaved_marker).x;
+        tab->ContentWidth = (tab->RequestedWidth >= 0.0f) ? tab->RequestedWidth : TabItemCalcSize(tab_name, has_close_button_or_unsaved_marker).x + TabItemCalcIconWidth(tab->Window);
         if ((tab->Flags & ImGuiTabItemFlags_Button) == 0)
             tab->ContentWidth = ImMax(tab->ContentWidth, g.Style.TabMinWidthBase);
 
@@ -10470,6 +10471,7 @@ bool    ImGui::TabItemEx(ImGuiTabBar* tab_bar, const char* label, bool* p_open, 
 
     // Calculate tab contents size
     ImVec2 size = TabItemCalcSize(label, (p_open != NULL) || (flags & ImGuiTabItemFlags_UnsavedDocument));
+    size.x = ImMin(size.x + TabItemCalcIconWidth(docked_window), TabBarCalcMaxTabWidth());
     tab->RequestedWidth = -1.0f;
     if (g.NextItemData.HasFlags & ImGuiNextItemDataFlags_HasWidth)
         size.x = tab->RequestedWidth = g.NextItemData.Width;
@@ -10698,7 +10700,15 @@ bool    ImGui::TabItemEx(ImGuiTabBar* tab_bar, const char* label, bool* p_open, 
         // The label of a tab that is neither selected nor hovered is in TabText
         const bool is_label_highlighted = tab_contents_visible || hovered || held;
         PushStyleColor(ImGuiCol_Text, GetStyleColorVec4(is_label_highlighted ? ImGuiCol_Text : ImGuiCol_TabText));
-        TabItemLabelAndCloseButton(display_draw_list, bb, tab_just_unsaved ? (flags & ~ImGuiTabItemFlags_UnsavedDocument) : flags, tab_bar->FramePadding, label, id, close_button_id, tab_contents_visible, &just_closed, &text_clipped);
+        // The icon of a docked window before its label, in the colour of the label
+        ImRect label_bb = bb;
+        if (const float icon_width = TabItemCalcIconWidth(docked_window); icon_width > 0.0f)
+        {
+            const ImVec2 icon_pos(bb.Min.x + tab_bar->FramePadding.x, bb.Min.y + tab_bar->FramePadding.y + (bb.GetHeight() - tab_bar->FramePadding.y * 2.0f - g.FontSize) * 0.5f);
+            display_draw_list->AddText(icon_pos, GetColorU32(ImGuiCol_Text), docked_window->TabIcon);
+            label_bb.Min.x = ImMin(label_bb.Min.x + icon_width, label_bb.Max.x);
+        }
+        TabItemLabelAndCloseButton(display_draw_list, label_bb, tab_just_unsaved ? (flags & ~ImGuiTabItemFlags_UnsavedDocument) : flags, tab_bar->FramePadding, label, id, close_button_id, tab_contents_visible, &just_closed, &text_clipped);
         PopStyleColor();
         if (just_closed && p_open != NULL)
         {
@@ -10772,7 +10782,18 @@ ImVec2 ImGui::TabItemCalcSize(const char* label, bool has_close_button_or_unsave
 
 ImVec2 ImGui::TabItemCalcSize(ImGuiWindow* window)
 {
-    return TabItemCalcSize(window->Name, window->HasCloseButton || (window->Flags & ImGuiWindowFlags_UnsavedDocument));
+    ImVec2 size = TabItemCalcSize(window->Name, window->HasCloseButton || (window->Flags & ImGuiWindowFlags_UnsavedDocument));
+    size.x = ImMin(size.x + TabItemCalcIconWidth(window), TabBarCalcMaxTabWidth());
+    return size;
+}
+
+// The width that the icon of a docked window (ImGuiWindow::TabIcon) adds before the label of its tab
+float ImGui::TabItemCalcIconWidth(ImGuiWindow* window)
+{
+    ImGuiContext& g = *GImGui;
+    if (window == NULL || window->TabIcon == NULL)
+        return 0.0f;
+    return CalcTextSize(window->TabIcon).x + g.Style.ItemInnerSpacing.x;
 }
 
 void ImGui::TabItemBackground(ImDrawList* draw_list, const ImRect& bb, ImGuiTabItemFlags flags, ImU32 col)
