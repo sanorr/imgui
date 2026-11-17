@@ -1454,6 +1454,7 @@ ImGuiStyle::ImGuiStyle()
     LogSliderDeadzone           = 4.0f;             // The size in pixels of the dead-zone around zero on logarithmic sliders that cross zero.
     ImageBorderSize             = 0.0f;             // Thickness of border around tabs.
     TabRounding                 = 5.0f;             // Radius of upper corners of a tab. Set to 0.0f to have rectangular tabs.
+    DockedWindowRounding        = 0.0f;             // Radius of the corners of a window docked in a dock space and of the top corners of the tab bar of its node.
     TabBorderSize               = 0.0f;             // Thickness of border around tabs.
     TabMinWidthBase             = 1.0f;             // Minimum tab width, to make tabs larger than their contents. TabBar buttons are not affected.
     TabMinWidthShrink           = 80.0f;            // Minimum tab width after shrinking, when using ImGuiTabBarFlags_FittingPolicyMixed policy.
@@ -1526,6 +1527,7 @@ void ImGuiStyle::ScaleAllSizes(float scale_factor)
     LogSliderDeadzone = ImTrunc(LogSliderDeadzone * scale_factor);
     ImageBorderSize = ImTrunc(ImageBorderSize * scale_factor);
     TabRounding = ImTrunc(TabRounding * scale_factor);
+    DockedWindowRounding = ImTrunc(DockedWindowRounding * scale_factor);
     TabMinWidthBase = ImTrunc(TabMinWidthBase * scale_factor);
     TabMinWidthShrink = ImTrunc(TabMinWidthShrink * scale_factor);
     TabCloseButtonMinWidthSelected = (TabCloseButtonMinWidthSelected > 0.0f && TabCloseButtonMinWidthSelected != FLT_MAX) ? ImTrunc(TabCloseButtonMinWidthSelected * scale_factor) : TabCloseButtonMinWidthSelected;
@@ -3580,7 +3582,7 @@ void ImGui::PopStyleColor(int count)
 
 static const ImGuiCol GWindowDockStyleColors[ImGuiWindowDockStyleCol_COUNT] =
 {
-    ImGuiCol_Text, ImGuiCol_TabHovered, ImGuiCol_Tab, ImGuiCol_TabSelected, ImGuiCol_TabSelectedOverline, ImGuiCol_TabDimmed, ImGuiCol_TabDimmedSelected, ImGuiCol_TabDimmedSelectedOverline,
+    ImGuiCol_Text, ImGuiCol_TabHovered, ImGuiCol_Tab, ImGuiCol_TabSelected, ImGuiCol_TabSelectedOverline, ImGuiCol_TabDimmed, ImGuiCol_TabDimmedSelected, ImGuiCol_TabDimmedSelectedOverline, ImGuiCol_TabText,
 };
 
 static const ImGuiStyleVarInfo GStyleVarsInfo[] =
@@ -3758,6 +3760,7 @@ const char* ImGui::GetStyleColorName(ImGuiCol idx)
     case ImGuiCol_TabDimmed: return "TabDimmed";
     case ImGuiCol_TabDimmedSelected: return "TabDimmedSelected";
     case ImGuiCol_TabDimmedSelectedOverline: return "TabDimmedSelectedOverline";
+    case ImGuiCol_TabText: return "TabText";
     case ImGuiCol_DockingPreview: return "DockingPreview";
     case ImGuiCol_DockingEmptyBg: return "DockingEmptyBg";
     case ImGuiCol_PlotLines: return "PlotLines";
@@ -8115,8 +8118,10 @@ bool ImGui::Begin(const char* name, bool* p_open, ImGuiWindowFlags flags)
 
         // Lock window rounding for the frame (so that altering them doesn't cause inconsistencies)
         // Large values tend to lead to variety of artifacts and are not recommended.
-        if (window->ViewportOwned || window->DockIsActive)
+        if (window->ViewportOwned)
             window->WindowRounding = 0.0f;
+        else if (window->DockIsActive)
+            window->WindowRounding = window->DockNode->IsRootNode() && !window->DockNode->IsDockSpace() ? 0.0f : style.DockedWindowRounding;
         else
             window->WindowRounding = (flags & ImGuiWindowFlags_ChildWindow) ? style.ChildRounding : ((flags & ImGuiWindowFlags_Popup) && !(flags & ImGuiWindowFlags_Modal)) ? style.PopupRounding : style.WindowRounding;
 
@@ -19008,7 +19013,15 @@ static void ImGui::DockNodeUpdate(ImGuiDockNode* node)
     if (node->TabBar && node->TabBar->SelectedTabId)
         node->SelectedTabId = node->TabBar->SelectedTabId;
     else if (node->Windows.Size > 0)
-        node->SelectedTabId = node->Windows[0]->TabId;
+    {
+        // A node without a tab bar keeps the window selected in it while that window is in it
+        bool is_selected_window_in_node = false;
+        for (ImGuiWindow* candidate : node->Windows)
+            if (candidate->TabId == node->SelectedTabId)
+                is_selected_window_in_node = true;
+        if (!is_selected_window_in_node)
+            node->SelectedTabId = node->Windows[0]->TabId;
+    }
 
     // Draw payload drop target
     if (host_window && node->IsVisible)
@@ -19158,7 +19171,18 @@ static void ImGui::DockNodeUpdateTabBar(ImGuiDockNode* node, ImGuiWindow* host_w
     // Hidden tab bar will show a triangle on the upper-left (in Begin)
     if (node->IsHiddenTabBar() || node->IsNoTabBar())
     {
+        // A node without a tab bar shows the window focused last in it, as a tab bar selects the tab of a focused window, then
+        // the window selected in it (SelectedTabId), then its first window
+        ImGuiWindow* focused_window = NULL;
+        for (ImGuiWindow* candidate : node->Windows)
+            if (candidate->LastFrameJustFocused > 0 && (focused_window == NULL || candidate->LastFrameJustFocused > focused_window->LastFrameJustFocused))
+                focused_window = candidate;
+        if (focused_window)
+            node->SelectedTabId = focused_window->TabId;
         node->VisibleWindow = (node->Windows.Size > 0) ? node->Windows[0] : NULL;
+        for (ImGuiWindow* candidate : node->Windows)
+            if (candidate->TabId == node->SelectedTabId)
+                node->VisibleWindow = candidate;
         node->IsFocused = is_focused;
         if (is_focused)
             node->LastFrameFocused = g.FrameCount;
@@ -19229,8 +19253,9 @@ static void ImGui::DockNodeUpdateTabBar(ImGuiDockNode* node, ImGuiWindow* host_w
     if (is_focused)
         node->LastFrameFocused = g.FrameCount;
     ImU32 title_bar_col = GetColorU32(host_window->Collapsed ? ImGuiCol_TitleBgCollapsed : is_focused ? ImGuiCol_TitleBgActive : ImGuiCol_TitleBg);
-    ImDrawFlags rounding_flags = CalcRoundingFlagsForRectInRect(title_bar_rect, host_window->Rect(), g.Style.DockingSeparatorSize);
-    host_window->DrawList->AddRectFilled(title_bar_rect.Min, title_bar_rect.Max, title_bar_col, host_window->WindowRounding, rounding_flags);
+    const bool is_in_dock_space = DockNodeGetRootNode(node)->IsDockSpace();
+    ImDrawFlags rounding_flags = is_in_dock_space ? ImDrawFlags_RoundCornersTop : CalcRoundingFlagsForRectInRect(title_bar_rect, host_window->Rect(), g.Style.DockingSeparatorSize);
+    host_window->DrawList->AddRectFilled(title_bar_rect.Min, title_bar_rect.Max, title_bar_col, is_in_dock_space ? g.Style.DockedWindowRounding : host_window->WindowRounding, rounding_flags);
 
     // Docking/Collapse button
     if (has_window_menu_button)

@@ -1843,6 +1843,7 @@ enum ImGuiCol_
     ImGuiCol_TabDimmed,             // Tab background, when tab-bar is unfocused & tab is unselected
     ImGuiCol_TabDimmedSelected,     // Tab background, when tab-bar is unfocused & tab is selected
     ImGuiCol_TabDimmedSelectedOverline,//..horizontal overline, when tab-bar is unfocused & tab is selected
+    ImGuiCol_TabText,               // Label of a tab that is neither selected nor hovered
     ImGuiCol_DockingPreview,        // Preview overlay color when about to docking something
     ImGuiCol_DockingEmptyBg,        // Background color for empty node (e.g. CentralNode with no window docked into it)
     ImGuiCol_PlotLines,
@@ -2380,6 +2381,7 @@ struct ImGuiStyle
     float       LogSliderDeadzone;          // The size in pixels of the dead-zone around zero on logarithmic sliders that cross zero.
     float       ImageBorderSize;            // Thickness of border around Image() calls.
     float       TabRounding;                // Radius of upper corners of a tab. Set to 0.0f to have rectangular tabs.
+    float       DockedWindowRounding;       // Radius of the corners of a window docked in a dock space and of the top corners of the tab bar of its node. 0.0f keeps docked windows rectangular.
     float       TabBorderSize;              // Thickness of border around tabs.
     float       TabMinWidthBase;            // Minimum tab width, to make tabs larger than their contents. TabBar buttons are not affected.
     float       TabMinWidthShrink;          // Minimum tab width after shrinking, when using ImGuiTabBarFlags_FittingPolicyMixed policy.

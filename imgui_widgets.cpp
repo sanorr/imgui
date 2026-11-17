@@ -10695,7 +10695,11 @@ bool    ImGui::TabItemEx(ImGuiTabBar* tab_bar, const char* label, bool* p_open, 
         const ImGuiID close_button_id = p_open ? GetIDWithSeed("#CLOSE", NULL, docked_window ? docked_window->ID : id) : 0;
         bool just_closed;
         bool text_clipped;
+        // The label of a tab that is neither selected nor hovered is in TabText
+        const bool is_label_highlighted = tab_contents_visible || hovered || held;
+        PushStyleColor(ImGuiCol_Text, GetStyleColorVec4(is_label_highlighted ? ImGuiCol_Text : ImGuiCol_TabText));
         TabItemLabelAndCloseButton(display_draw_list, bb, tab_just_unsaved ? (flags & ~ImGuiTabItemFlags_UnsavedDocument) : flags, tab_bar->FramePadding, label, id, close_button_id, tab_contents_visible, &just_closed, &text_clipped);
+        PopStyleColor();
         if (just_closed && p_open != NULL)
         {
             *p_open = false;
